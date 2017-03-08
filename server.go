@@ -29,7 +29,6 @@ import (
 	"github.com/containous/traefik/provider"
 	"github.com/containous/traefik/safe"
 	"github.com/containous/traefik/types"
-	"github.com/mailgun/manners"
 	"github.com/streamrail/concurrent-map"
 	"github.com/vulcand/oxy/cbreaker"
 	"github.com/vulcand/oxy/connlimit"
@@ -58,7 +57,7 @@ type Server struct {
 type serverEntryPoints map[string]*serverEntryPoint
 
 type serverEntryPoint struct {
-	httpServer *manners.GracefulServer
+	httpServer *http.Server
 	httpRouter *middlewares.HandlerSwitcher
 }
 
@@ -114,14 +113,15 @@ func (server *Server) Wait() {
 
 // Stop stops the server
 func (server *Server) Stop() {
+	defer log.Info("Server stopped")
 	for serverEntryPointName, serverEntryPoint := range server.serverEntryPoints {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(server.globalConfiguration.GraceTimeOut)*time.Second)
-		go func() {
-			log.Debugf("Waiting %d seconds before killing connections on entrypoint %s...", 30, serverEntryPointName)
-			serverEntryPoint.httpServer.BlockingClose()
-			cancel()
-		}()
-		<-ctx.Done()
+		log.Debugf("Waiting %d seconds before killing connections on entrypoint %s...", server.globalConfiguration.GraceTimeOut, serverEntryPointName)
+		if err := serverEntryPoint.httpServer.Shutdown(ctx); err != nil {
+			log.Debugf("Wait is over due to: %s", err)
+			serverEntryPoint.httpServer.Close()
+		}
+		cancel()
 	}
 	server.stopChan <- true
 }
@@ -191,7 +191,7 @@ func (server *Server) startHTTPServers() {
 		if server.globalConfiguration.EntryPoints[newServerEntryPointName].Compress {
 			serverMiddlewares = append(serverMiddlewares, &middlewares.Compress{})
 		}
-		newsrv, err := server.prepareServer(newServerEntryPointName, newServerEntryPoint.httpRouter, server.globalConfiguration.EntryPoints[newServerEntryPointName], nil, serverMiddlewares...)
+		newsrv, err := server.prepareServer(newServerEntryPointName, newServerEntryPoint.httpRouter, server.globalConfiguration.EntryPoints[newServerEntryPointName], serverMiddlewares...)
 		if err != nil {
 			log.Fatal("Error preparing server: ", err)
 		}
@@ -490,21 +490,22 @@ func (server *Server) createTLSConfig(entryPointName string, tlsOption *TLS, rou
 	return config, nil
 }
 
-func (server *Server) startServer(srv *manners.GracefulServer, globalConfiguration GlobalConfiguration) {
+func (server *Server) startServer(srv *http.Server, globalConfiguration GlobalConfiguration) {
 	log.Infof("Starting server on %s", srv.Addr)
 	if srv.TLSConfig != nil {
-		if err := srv.ListenAndServeTLSWithConfig(srv.TLSConfig); err != nil {
+		err := srv.ListenAndServeTLS("", "")
+		if err != nil {
 			log.Fatal("Error creating server: ", err)
 		}
 	} else {
-		if err := srv.ListenAndServe(); err != nil {
+		err := srv.ListenAndServe()
+		if err != nil {
 			log.Fatal("Error creating server: ", err)
 		}
 	}
-	log.Info("Server stopped")
 }
 
-func (server *Server) prepareServer(entryPointName string, router *middlewares.HandlerSwitcher, entryPoint *EntryPoint, oldServer *manners.GracefulServer, middlewares ...negroni.Handler) (*manners.GracefulServer, error) {
+func (server *Server) prepareServer(entryPointName string, router *middlewares.HandlerSwitcher, entryPoint *EntryPoint, middlewares ...negroni.Handler) (*http.Server, error) {
 	log.Infof("Preparing server %s %+v", entryPointName, entryPoint)
 	// middlewares
 	var negroni = negroni.New()
@@ -518,24 +519,11 @@ func (server *Server) prepareServer(entryPointName string, router *middlewares.H
 		return nil, err
 	}
 
-	if oldServer == nil {
-		return manners.NewWithServer(
-			&http.Server{
-				Addr:      entryPoint.Address,
-				Handler:   negroni,
-				TLSConfig: tlsConfig,
-			}), nil
-	}
-	gracefulServer, err := oldServer.HijackListener(&http.Server{
+	return &http.Server{
 		Addr:      entryPoint.Address,
 		Handler:   negroni,
 		TLSConfig: tlsConfig,
-	}, tlsConfig)
-	if err != nil {
-		log.Errorf("Error hijacking server: %s", err)
-		return nil, err
-	}
-	return gracefulServer, nil
+	}, nil
 }
 
 func (server *Server) buildEntryPoints(globalConfiguration GlobalConfiguration) map[string]*serverEntryPoint {

@@ -1,5 +1,5 @@
-hash: f2a0b9af55c8312762e4148bd876e5bd2451c240b407fbb6d4a5dbc56bf46c05
-updated: 2017-03-03T10:21:14.720631882+01:00
+hash: 828e24fcdc0d5a1c864d2c2cfc7c4a7a34c777b5588902b8764cb89bd381e429
+updated: 2017-03-08T16:33:36.309948789+01:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -325,8 +325,6 @@ imports:
   version: 72f9bd7c4e0c2a40055ab3d0f09654f730cce982
 - name: github.com/juju/ratelimit
   version: 77ed1c8a01217656d2080ad51981f6e99adaa177
-- name: github.com/mailgun/manners
-  version: a585afd9d65c0e05f6c003f921e71ebc05074f4f
 - name: github.com/mailgun/timetools
   version: fd192d755b00c968d312d23f521eb0cdc6f66bd0
 - name: github.com/mailru/easyjson
